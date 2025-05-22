@@ -65,6 +65,7 @@ app.post("/api/webhook", async (req, res) => {
       price,
       volume,
       u_interval,
+      time
     } = req.body;
     console.log("Received webhook data:", req.body);
 
@@ -101,7 +102,7 @@ app.post("/api/webhook", async (req, res) => {
     const connection = await pool.getConnection();
     try {
       const [result] = await connection.query(
-        "INSERT INTO webhook_events (ticker, timenow, message, open, high, low, close, price, volume, u_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO webhook_events (ticker, timenow, message, open, high, low, close, price, volume, u_interval, time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
           ticker,
           timenow,
@@ -113,6 +114,7 @@ app.post("/api/webhook", async (req, res) => {
           price,
           volume,
           u_interval,
+          time,
         ]
       );
       console.log("Data inserted successfully:", result);
