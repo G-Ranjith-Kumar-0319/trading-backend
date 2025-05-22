@@ -2,8 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
-const fs = require("fs").promises;
-const path = require("path");
+const mysql = require("mysql2/promise");
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -12,64 +11,57 @@ const port = process.env.PORT || 3001;
 app.use(cors());
 app.use(bodyParser.json());
 
-const DATA_FILE = path.join(__dirname, "webhook_events.json");
+// Database connection
+const pool = mysql.createPool({
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
+  port: 3306,
+});
 
-// Initialize JSON file if it doesn't exist
-async function initializeDataFile() {
+// Create table if not exists
+async function initializeDatabase() {
   try {
-    await fs.access(DATA_FILE);
+    const connection = await pool.getConnection();
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS webhook_events (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        ticker VARCHAR(20) NOT NULL,
+        timestamp DATETIME NOT NULL,
+        message TEXT,
+        open DECIMAL(20,8),
+        high DECIMAL(20,8),
+        low DECIMAL(20,8),
+        close DECIMAL(20,8),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    connection.release();
+    console.log("Database initialized successfully");
   } catch (error) {
-    // File doesn't exist, create it with empty array
-    await fs.writeFile(DATA_FILE, JSON.stringify([]));
-    console.log("Data file initialized successfully");
+    console.error("Database initialization error:", error);
   }
-}
-
-// Helper function to read data
-async function readData() {
-  const data = await fs.readFile(DATA_FILE, "utf8");
-  return JSON.parse(data);
-}
-
-// Helper function to write data
-async function writeData(data) {
-  await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2));
 }
 
 // Webhook endpoint
 app.post("/api/webhook", async (req, res) => {
   try {
     const { ticker, timestamp, message, open, high, low, close } = req.body;
-    console.log(
-      "data------------>",
-      req.body,
-      ticker,
-      timestamp,
-      message,
-      open,
-      high,
-      low,
-      close
-    );
+
     if (!ticker || !timestamp) {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
-    const events = await readData();
-    const newEvent = {
-      id: events.length + 1,
-      ticker,
-      timestamp,
-      message,
-      open,
-      high,
-      low,
-      close,
-      created_at: new Date().toISOString(),
-    };
-
-    events.push(newEvent);
-    await writeData(events);
+    const connection = await pool.getConnection();
+    await connection.query(
+      "INSERT INTO webhook_events (ticker, timestamp, message, open, high, low, close) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [ticker, timestamp, message, open, high, low, close]
+    );
+    connection.release();
 
     res.status(200).json({ message: "Webhook data received successfully" });
   } catch (error) {
@@ -81,10 +73,12 @@ app.post("/api/webhook", async (req, res) => {
 // Get all events
 app.get("/api/events", async (req, res) => {
   try {
-    const events = await readData();
-    res.json(
-      events.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+    const connection = await pool.getConnection();
+    const [rows] = await connection.query(
+      "SELECT * FROM webhook_events ORDER BY timestamp DESC"
     );
+    connection.release();
+    res.json(rows);
   } catch (error) {
     console.error("Error fetching events:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -95,19 +89,21 @@ app.get("/api/events", async (req, res) => {
 app.get("/api/events/:ticker", async (req, res) => {
   try {
     const { ticker } = req.params;
-    const events = await readData();
-    const filteredEvents = events
-      .filter((event) => event.ticker === ticker)
-      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-    res.json(filteredEvents);
+    const connection = await pool.getConnection();
+    const [rows] = await connection.query(
+      "SELECT * FROM webhook_events WHERE ticker = ? ORDER BY timestamp DESC",
+      [ticker]
+    );
+    connection.release();
+    res.json(rows);
   } catch (error) {
     console.error("Error fetching events by ticker:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// Initialize data file and start server
-initializeDataFile().then(() => {
+// Initialize database and start server
+initializeDatabase().then(() => {
   app.listen(port, () => {
     console.log(`Server running on port ${port}`);
   });
