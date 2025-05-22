@@ -40,7 +40,17 @@ async function writeData(data) {
 app.post("/api/webhook", async (req, res) => {
   try {
     const { ticker, timestamp, message, open, high, low, close } = req.body;
-
+    console.log(
+      "data------------>",
+      req.body,
+      ticker,
+      timestamp,
+      message,
+      open,
+      high,
+      low,
+      close
+    );
     if (!ticker || !timestamp) {
       return res.status(400).json({ error: "Missing required fields" });
     }
