@@ -44,6 +44,7 @@ async function initializeDatabase() {
     console.log("Database initialized successfully");
   } catch (error) {
     console.error("Database initialization error:", error);
+    throw error; // Re-throw to handle it in the server startup
   }
 }
 
@@ -51,22 +52,45 @@ async function initializeDatabase() {
 app.post("/api/webhook", async (req, res) => {
   try {
     const { ticker, timestamp, message, open, high, low, close } = req.body;
-    console.log("test response", req.body);
+    console.log("Received webhook data:", req.body);
+
+    // Validate required fields
     if (!ticker || !timestamp) {
+      console.error("Missing required fields:", { ticker, timestamp });
       return res.status(400).json({ error: "Missing required fields" });
     }
 
-    const connection = await pool.getConnection();
-    await connection.query(
-      "INSERT INTO webhook_events (ticker, timestamp, message, open, high, low, close) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [ticker, timestamp, message, open, high, low, close]
-    );
-    connection.release();
+    // Validate data types
+    const numericFields = { open, high, low, close };
+    for (const [field, value] of Object.entries(numericFields)) {
+      if (value !== undefined && isNaN(Number(value))) {
+        console.error(`Invalid ${field} value:`, value);
+        return res.status(400).json({ error: `Invalid ${field} value` });
+      }
+    }
 
-    res.status(200).json({ message: "Webhook data received successfully" });
+    const connection = await pool.getConnection();
+    try {
+      const [result] = await connection.query(
+        "INSERT INTO webhook_events (ticker, timestamp, message, open, high, low, close) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [ticker, timestamp, message, open, high, low, close]
+      );
+      console.log("Data inserted successfully:", result);
+      res.status(200).json({
+        message: "Webhook data received successfully",
+        id: result.insertId,
+      });
+    } catch (dbError) {
+      console.error("Database insertion error:", dbError);
+      throw dbError;
+    } finally {
+      connection.release();
+    }
   } catch (error) {
     console.error("Webhook error:", error);
-    res.status(500).json({ error: "Internal server error" });
+    res
+      .status(500)
+      .json({ error: "Internal server error", details: error.message });
   }
 });
 
@@ -103,8 +127,13 @@ app.get("/api/events/:ticker", async (req, res) => {
 });
 
 // Initialize database and start server
-initializeDatabase().then(() => {
-  app.listen(port, () => {
-    console.log(`Server running on port ${port}`);
+initializeDatabase()
+  .then(() => {
+    app.listen(port, () => {
+      console.log(`Server running on port ${port}`);
+    });
+  })
+  .catch((error) => {
+    console.error("Failed to initialize database:", error);
+    process.exit(1);
   });
-});
