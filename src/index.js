@@ -51,7 +51,7 @@ async function initializeDatabase() {
 app.post("/api/webhook", async (req, res) => {
   try {
     const { ticker, timestamp, message, open, high, low, close } = req.body;
-
+    console.log("test response", req.body);
     if (!ticker || !timestamp) {
       return res.status(400).json({ error: "Missing required fields" });
     }
