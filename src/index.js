@@ -31,13 +31,16 @@ async function initializeDatabase() {
       CREATE TABLE IF NOT EXISTS webhook_events (
         id INT AUTO_INCREMENT PRIMARY KEY,
         ticker VARCHAR(20) NOT NULL,
-        timestamp DATETIME NOT NULL,
+        timenow DATETIME NOT NULL,
         message TEXT,
         open DECIMAL(20,8),
         high DECIMAL(20,8),
         low DECIMAL(20,8),
         close DECIMAL(20,8),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        price DECIMAL(20,8),
+        volume INT,
+        interval VARCHAR(20),
+        time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
     connection.release();
@@ -51,17 +54,28 @@ async function initializeDatabase() {
 // Webhook endpoint
 app.post("/api/webhook", async (req, res) => {
   try {
-    const { ticker, timestamp, message, open, high, low, close } = req.body;
+    const {
+      ticker,
+      timenow,
+      message,
+      open,
+      high,
+      low,
+      close,
+      price,
+      volume,
+      interval,
+    } = req.body;
     console.log("Received webhook data:", req.body);
 
     // Validate required fields
-    if (!ticker || !timestamp) {
-      console.error("Missing required fields:", { ticker, timestamp });
+    if (!ticker || !timenow) {
+      console.error("Missing required fields:", { ticker, timenow });
       return res.status(400).json({ error: "Missing required fields" });
     }
 
     // Validate data types
-    const numericFields = { open, high, low, close };
+    const numericFields = { open, high, low, close, price, volume };
     for (const [field, value] of Object.entries(numericFields)) {
       if (value !== undefined && isNaN(Number(value))) {
         console.error(`Invalid ${field} value:`, value);
@@ -72,8 +86,19 @@ app.post("/api/webhook", async (req, res) => {
     const connection = await pool.getConnection();
     try {
       const [result] = await connection.query(
-        "INSERT INTO webhook_events (ticker, timestamp, message, open, high, low, close) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [ticker, timestamp, message, open, high, low, close]
+        "INSERT INTO webhook_events (ticker, timenow, message, open, high, low, close, price, volume, interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+          ticker,
+          timenow,
+          message,
+          open,
+          high,
+          low,
+          close,
+          price,
+          volume,
+          interval,
+        ]
       );
       console.log("Data inserted successfully:", result);
       res.status(200).json({
@@ -99,7 +124,7 @@ app.get("/api/events", async (req, res) => {
   try {
     const connection = await pool.getConnection();
     const [rows] = await connection.query(
-      "SELECT * FROM webhook_events ORDER BY timestamp DESC"
+      "SELECT * FROM webhook_events ORDER BY time DESC"
     );
     connection.release();
     res.json(rows);
@@ -115,7 +140,7 @@ app.get("/api/events/:ticker", async (req, res) => {
     const { ticker } = req.params;
     const connection = await pool.getConnection();
     const [rows] = await connection.query(
-      "SELECT * FROM webhook_events WHERE ticker = ? ORDER BY timestamp DESC",
+      "SELECT * FROM webhook_events WHERE ticker = ? ORDER BY time DESC",
       [ticker]
     );
     connection.release();
