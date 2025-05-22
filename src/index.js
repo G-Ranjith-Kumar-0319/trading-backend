@@ -39,7 +39,7 @@ async function initializeDatabase() {
         close DECIMAL(20,8),
         price DECIMAL(20,8),
         volume INT,
-        interval VARCHAR(20),
+        u_interval VARCHAR(20),
         time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -64,7 +64,7 @@ app.post("/api/webhook", async (req, res) => {
       close,
       price,
       volume,
-      interval,
+      u_interval,
     } = req.body;
     console.log("Received webhook data:", req.body);
 
@@ -72,6 +72,21 @@ app.post("/api/webhook", async (req, res) => {
     if (!ticker || !timenow) {
       console.error("Missing required fields:", { ticker, timenow });
       return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    // Validate timenow format
+    if (!Date.parse(timenow)) {
+      console.error("Invalid timenow format:", timenow);
+      return res.status(400).json({ error: "Invalid timenow format" });
+    }
+
+    // Validate u_interval if provided
+    if (
+      u_interval &&
+      !["1m", "5m", "15m", "30m", "1h", "4h", "1d"].includes(u_interval)
+    ) {
+      console.error("Invalid u_interval value:", u_interval);
+      return res.status(400).json({ error: "Invalid u_interval value" });
     }
 
     // Validate data types
@@ -86,7 +101,7 @@ app.post("/api/webhook", async (req, res) => {
     const connection = await pool.getConnection();
     try {
       const [result] = await connection.query(
-        "INSERT INTO webhook_events (ticker, timenow, message, open, high, low, close, price, volume, interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO webhook_events (ticker, timenow, message, open, high, low, close, price, volume, u_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
           ticker,
           timenow,
@@ -97,7 +112,7 @@ app.post("/api/webhook", async (req, res) => {
           close,
           price,
           volume,
-          interval,
+          u_interval,
         ]
       );
       console.log("Data inserted successfully:", result);
